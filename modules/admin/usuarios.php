@@ -14,26 +14,29 @@ $action = $_GET['action'] ?? '';
 $id = $_GET['id'] ?? 0;
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $action = $_POST['action'] ?? ''; // Asegúrate de recibir el action del form
+
     if ($action === 'crear') {
-        // Crear nuevo usuario
-        $username = $_POST['username'];
+        $username = sanitizeInput($_POST['username']);
         $password = password_hash($_POST['password'], PASSWORD_DEFAULT);
-        $nombres = $_POST['nombres'];
-        $apellidos = $_POST['apellidos'];
-        $email = $_POST['email'];
+        $nombres = sanitizeInput($_POST['nombres']);
+        $apellidos = sanitizeInput($_POST['apellidos']);
+        $email = sanitizeInput($_POST['email']);
         $rol = $_POST['rol'];
         $estado = $_POST['estado'];
 
         try {
+            $db = Database::getConnection();
             $stmt = $db->prepare("
                 INSERT INTO usuarios_sistema 
                 (username, password_hash, nombres, apellidos, email, rol, estado, ultimo_acceso) 
                 VALUES (?, ?, ?, ?, ?, ?, ?, NOW())
             ");
             $stmt->execute([$username, $password, $nombres, $apellidos, $email, $rol, $estado]);
+            $nuevo_id = $db->lastInsertId();
             
-            // Log de actividad
-            logActividad('CREAR_USUARIO', 'usuarios_sistema', "Usuario creado: $username");
+            // USANDO TU FUNCIÓN: logAction($accion, $detalle, $tabla, $id_registro)
+            logAction('CREAR_USUARIO', "Se creó el usuario: $username", 'usuarios_sistema', $nuevo_id);
             
             setFlashMessage('success', 'Usuario creado exitosamente');
             header('Location: usuarios.php');
@@ -43,15 +46,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     elseif ($action === 'editar') {
-        // Editar usuario existente
         $id_usuario = $_POST['id_usuario'];
-        $nombres = $_POST['nombres'];
-        $apellidos = $_POST['apellidos'];
-        $email = $_POST['email'];
+        $nombres = sanitizeInput($_POST['nombres']);
+        $apellidos = sanitizeInput($_POST['apellidos']);
+        $email = sanitizeInput($_POST['email']);
         $rol = $_POST['rol'];
         $estado = $_POST['estado'];
 
         try {
+            $db = Database::getConnection();
             $stmt = $db->prepare("
                 UPDATE usuarios_sistema 
                 SET nombres = ?, apellidos = ?, email = ?, rol = ?, estado = ?
@@ -59,14 +62,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             ");
             $stmt->execute([$nombres, $apellidos, $email, $rol, $estado, $id_usuario]);
             
-            // Si se proporcionó nueva contraseña
             if (!empty($_POST['password'])) {
                 $password = password_hash($_POST['password'], PASSWORD_DEFAULT);
                 $stmt = $db->prepare("UPDATE usuarios_sistema SET password_hash = ? WHERE id_usuario = ?");
                 $stmt->execute([$password, $id_usuario]);
             }
             
-            logActividad('ACTUALIZAR_USUARIO', 'usuarios_sistema', "Usuario actualizado ID: $id_usuario");
+            // USANDO TU FUNCIÓN: logAction
+            logAction('ACTUALIZAR_USUARIO', "Actualización de datos del ID: $id_usuario", 'usuarios_sistema', $id_usuario);
             
             setFlashMessage('success', 'Usuario actualizado exitosamente');
             header('Location: usuarios.php');
@@ -76,16 +79,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
     elseif ($action === 'eliminar') {
-        // Eliminar usuario
+        $id_a_eliminar = $_POST['id_usuario'];
+        $usuario_sesion = $_SESSION['user_id'] ?? null;
+
         try {
+            $db = Database::getConnection();
+            // Evitar que se elimine a sí mismo
             $stmt = $db->prepare("DELETE FROM usuarios_sistema WHERE id_usuario = ? AND id_usuario != ?");
-            $stmt->execute([$id, $_SESSION['usuario_id']]);
+            $stmt->execute([$id_a_eliminar, $usuario_sesion]);
             
             if ($stmt->rowCount() > 0) {
-                logActividad('ELIMINAR_USUARIO', 'usuarios_sistema', "Usuario eliminado ID: $id");
+                logAction('ELIMINAR_USUARIO', "ID eliminado: $id_a_eliminar", 'usuarios_sistema', $id_a_eliminar);
                 setFlashMessage('success', 'Usuario eliminado exitosamente');
             } else {
-                setFlashMessage('warning', 'No se puede eliminar su propio usuario');
+                setFlashMessage('warning', 'No se pudo eliminar el usuario (puede que sea tu propia cuenta)');
             }
             
             header('Location: usuarios.php');
@@ -138,8 +145,6 @@ require_once __DIR__ . '/../../includes/header.php';
 
 <div class="container-fluid">
     <div class="row">
-        <!-- Sidebar -->
-        <?php require_once __DIR__ . '/../../includes/sidebar.php'; ?>
         
         <!-- Main Content -->
         <main class="col-md-9 ms-sm-auto col-lg-10 px-md-4">
